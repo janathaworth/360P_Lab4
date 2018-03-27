@@ -1,8 +1,8 @@
 import org.apache.hadoop.fs.Path;
 
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
-import java.util.AbstractMap.SimpleEntry;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 
@@ -23,8 +23,7 @@ public class TextAnalyzer extends Configured implements Tool {
     // Replace "?" with your own output key / value types
     // The four template data types are:
     //     <Input Key Type, Input Value Type, Output Key Type, Output Value Type>
-    public static class TextMapper extends Mapper<LongWritable, Text, Text, SimpleEntry> {
-    	private final static IntWritable one = new IntWritable(1);
+    public static class TextMapper extends Mapper<LongWritable, Text, Text, QueryPair> {
     	private Text context_word = new Text();
 //    	private Text query_word = new Text();
     	private String query_word;
@@ -33,8 +32,8 @@ public class TextAnalyzer extends Configured implements Tool {
         public void map(LongWritable key, Text value, Context context) throws IOException, InterruptedException
         {
             // Implementation of you mapper function
-        	String sentence = value.toString().toLowerCase().replaceAll("[^A-Za-z0-9]", " ");
-        	String[] words = sentence.split(" ");
+        	String sentence = value.toString().replaceAll("[^A-Za-z0-9]", " ").toLowerCase();
+        	String[] words = sentence.trim().split("\\s+");
         	HashSet<String> seen = new HashSet<String>();
         	HashMap<String, Integer> map = new HashMap<String, Integer>();
         	
@@ -50,7 +49,7 @@ public class TextAnalyzer extends Configured implements Tool {
         				query_word = words[j];
         				
         				if (map.containsKey(query_word)) {
-        					map.put(query_word, map.get(query_word) + 1);
+        					map.put(query_word, new Integer(map.get(query_word) + 1));
 
         				}
         				else {
@@ -62,7 +61,7 @@ public class TextAnalyzer extends Configured implements Tool {
         		}
         		
             	for (String s: map.keySet()) {
-            		context.write(context_word, new SimpleEntry(s, map.get(s)));
+            		context.write(context_word, new QueryPair(s, map.get(s)));
             	}
             	
             	map.clear();
@@ -73,24 +72,24 @@ public class TextAnalyzer extends Configured implements Tool {
 
     // Replace "?" with your own key / value types
     // NOTE: combiner's output key / value types have to be the same as those of mapper
-    public static class TextCombiner extends Reducer<Text, SimpleEntry, Text, SimpleEntry> {
-        public void reduce(Text key, Iterable<SimpleEntry> tuples, Context context)
+    public static class TextCombiner extends Reducer<Text, QueryPair, Text, QueryPair> {
+        public void reduce(Text key, Iterable<QueryPair> tuples, Context context)
             throws IOException, InterruptedException
         {
             // Implementation of you combiner function
         	HashMap<String, Integer> map = new HashMap<String, Integer>();
         	String query_word;
-        	for (SimpleEntry<String, Integer> entry: tuples) {
+        	for (QueryPair entry: tuples) {
         		query_word = entry.getKey();
         		if (map.containsKey(query_word)) {
-    				map.put(query_word, map.get(query_word) + 1);
+    				map.put(query_word, map.get(query_word) + entry.getValue());
     			}
     			else {
-    				map.put(query_word, new Integer(1));
+    				map.put(query_word, entry.getValue());
     			}
         	}
         	for (String s: map.keySet()) {
-        		context.write(key, new SimpleEntry(s, map.get(s)));
+        		context.write(key, new QueryPair(s, map.get(s)));
         	}
 			
         }
@@ -98,24 +97,50 @@ public class TextAnalyzer extends Configured implements Tool {
 
     // Replace "?" with your own input key / value types, i.e., the output
     // key / value types of your mapper function
-    public static class TextReducer extends Reducer<Text, SimpleEntry, Text, Text> {
+    public static class TextReducer extends Reducer<Text, QueryPair, Text, Text> {
         private final static Text emptyText = new Text("");
-
-        public void reduce(Text key, Iterable<SimpleEntry> queryTuples, Context context)
+    	private Text queryWordText = new Text();
+        public void reduce(Text key, Iterable<QueryPair> queryTuples, Context context)
             throws IOException, InterruptedException
         {
             // Implementation of you reducer function
-
+//        	System.out.println("REDUCER INPUT: " + queryTuples);
+        	HashMap<String, Integer> map = new HashMap<String, Integer>(); 
+        	int max = 0;
+        	for (QueryPair entry: queryTuples) {
+        		int count = entry.getValue();
+        		
+        		if (count > max) {
+        			max = count; 
+        		}
+        		
+        		map.put(entry.getKey(), count);
+        	}
+        	
             // Write out the results; you may change the following example
             // code to fit with your reducer function.
             //   Write out the current context key
-            context.write(key, emptyText);
+            context.write(key, new Text(String.valueOf(max)));
+            
+        	for (String queryWord: map.keySet()) {
+        		int num = map.get(queryWord).intValue();
+        		if (num == max) {
+        			String count = String.valueOf(num) + ">";
+                    queryWordText.set("<" + queryWord + ",");
+                    context.write(queryWordText, new Text(count));
+                    
+        		}
+        	}
+
             //   Write out query words and their count
-//            for(String queryWord: map.keySet()){
-//                String count = map.get(queryWord).toString() + ">";
-//                queryWordText.set("<" + queryWord + ",");
-//                context.write(queryWordText, new Text(count));
-//            }
+            for(String queryWord: map.keySet()){
+            	int num = map.get(queryWord).intValue();
+            	if (num != max) {
+            		String count = num + ">";
+                    queryWordText.set("<" + queryWord + ",");
+                    context.write(queryWordText, new Text(count));
+            	}
+            }
             //   Empty line for ending the current context key
             context.write(emptyText, emptyText);
         }
@@ -125,13 +150,13 @@ public class TextAnalyzer extends Configured implements Tool {
         Configuration conf = this.getConf();
 
         // Create job
-        Job job = new Job(conf, "EID1_EID2"); // Replace with your EIDs
+        Job job = new Job(conf, "jlh6554_kh33248"); // Replace with your EIDs
         job.setJarByClass(TextAnalyzer.class);
 
         // Setup MapReduce job
         job.setMapperClass(TextMapper.class);
         //   Uncomment the following line if you want to use Combiner class
-        // job.setCombinerClass(TextCombiner.class);
+        job.setCombinerClass(TextCombiner.class);
         job.setReducerClass(TextReducer.class);
 
         // Specify key / value types (Don't change them for the purpose of this assignment)
@@ -139,8 +164,8 @@ public class TextAnalyzer extends Configured implements Tool {
         job.setOutputValueClass(Text.class);
         //   If your mapper and combiner's  output types are different from Text.class,
         //   then uncomment the following lines to specify the data types.
-        //job.setMapOutputKeyClass(?.class);
-        //job.setMapOutputValueClass(?.class);
+        job.setMapOutputKeyClass(Text.class);
+        job.setMapOutputValueClass(QueryPair.class);
 
         // Input
         FileInputFormat.addInputPath(job, new Path(args[0]));
@@ -161,8 +186,45 @@ public class TextAnalyzer extends Configured implements Tool {
     }
 
     // You may define sub-classes here. Example:
-//     public static class pair implements Tuple {
-//    
+     public static class QueryPair implements Writable {
+    	Text word;
+    	IntWritable count;
+    	
+    	public QueryPair() {
+    		word = new Text("EMPTY");
+    		count = new IntWritable(-1);
+    	}
+    	
+    	public QueryPair(String s, Integer c) {
+    		word = new Text(s);
+    		count = new IntWritable(c.intValue());
+    	}
+		
+		@Override
+		public void readFields(DataInput in) throws IOException {
+	        word.readFields(in);
+	        count.readFields(in);
+	    }
+		@Override
+	    public void write(DataOutput out) throws IOException {
+	        word.write(out);
+	        count.write(out);
+	    }
+	    
+	    public String getKey() {
+	    	return word.toString();
+	    }
+	    
+	    public int getValue() {
+	    	return count.get();
+	    }
+	    
+	    @Override 
+	    public String toString() {
+	    	return "<" + word.toString() + ", " + count.toString() + ">";
+	    }
+     }
+    
 
 }
 

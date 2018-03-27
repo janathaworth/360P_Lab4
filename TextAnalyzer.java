@@ -36,7 +36,7 @@ public class TextAnalyzer extends Configured implements Tool {
         	String sentence = value.toString().toLowerCase().replaceAll("[^A-Za-z0-9]", " ");
         	String[] words = sentence.split(" ");
         	HashSet<String> seen = new HashSet<String>();
-        	HashMap<String, SimpleEntry<String, Integer>> map = new HashMap<String, SimpleEntry<String, Integer>>();
+        	HashMap<String, Integer> map = new HashMap<String, Integer>();
         	
         	for (int i = 0; i < words.length; i++) {
         		if(!seen.add(words[i])) {
@@ -50,13 +50,11 @@ public class TextAnalyzer extends Configured implements Tool {
         				query_word = words[j];
         				
         				if (map.containsKey(query_word)) {
-        					SimpleEntry<String, Integer> temp = map.get(query_word);
-        					temp.setValue(temp.getValue() + 1);
-        					map.put(query_word, temp);
+        					map.put(query_word, map.get(query_word) + 1);
 
         				}
         				else {
-        					map.put(query_word, new SimpleEntry(query_word, 1));
+        					map.put(query_word, new Integer(1));
         				}
         				
 //        				context.write(context_word, new SimpleEntry(query_word, one));
@@ -64,7 +62,7 @@ public class TextAnalyzer extends Configured implements Tool {
         		}
         		
             	for (String s: map.keySet()) {
-            		context.write(context_word, map.get(s));
+            		context.write(context_word, new SimpleEntry(s, map.get(s)));
             	}
             	
             	map.clear();
@@ -80,6 +78,23 @@ public class TextAnalyzer extends Configured implements Tool {
             throws IOException, InterruptedException
         {
             // Implementation of you combiner function
+        	HashMap<String, SimpleEntry<String, Integer>> map = new HashMap<String, SimpleEntry<String, Integer>>();
+        	String query_word;
+        	for (SimpleEntry<String, Integer> entry: tuples) {
+        		query_word = entry.getKey();
+        		if (map.containsKey(query_word)) {
+    				SimpleEntry<String, Integer> temp = map.get(query_word);
+    				temp.setValue(temp.getValue() + 1);
+    				map.put(query_word, temp);
+    			}
+    			else {
+    				map.put(query_word, new SimpleEntry(query_word, 1));
+    			}
+        	}
+        	for (String s: map.keySet()) {
+        		context.write(key, new SimpleEntry(s, map.get(s)));
+        	}
+			
         }
     }
 

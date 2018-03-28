@@ -4,6 +4,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.TreeMap;
 import java.util.HashSet;
 
 import org.apache.hadoop.conf.*;
@@ -105,7 +106,7 @@ public class TextAnalyzer extends Configured implements Tool {
         {
             // Implementation of you reducer function
 //        	System.out.println("REDUCER INPUT: " + queryTuples);
-        	HashMap<String, Integer> map = new HashMap<String, Integer>(); 
+        	TreeMap<String, Integer> map = new TreeMap<String, Integer>(); 
         	int max = 0;
         	for (QueryPair entry: queryTuples) {
         		int count = entry.getValue();
